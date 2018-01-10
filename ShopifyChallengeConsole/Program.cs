@@ -202,9 +202,8 @@ namespace ShopifyChallengeConsole
         }
 
         /// <summary>
-        /// Main task, finds the invalid and valid menus.
+        /// Main task, finds the invalid and valid menus and outputs the final result.
         /// </summary>
-        /// <returns></returns>
         static async Task RunAsync()
         {
             client.BaseAddress = new Uri(apiUrl);
