@@ -15,14 +15,21 @@ using Newtonsoft.Json;
 namespace ShopifyChallengeConsole
 {
     /// <summary>
-    /// Plain CLR object representing the array of menus
+    /// Plain CLR object representing the array of menus.
     /// </summary>
     public class Menus
     {
-        public Menu[] menus { get; set; }
+        public Menus()
+        {
+            menus = new List<Menu>();
+        }
+        public List<Menu> menus { get; set; }
         public Pagination pagination { get; set; }
     }
 
+    /// <summary>
+    /// Plain CLR object representing the pagination information.
+    /// </summary>
     public class Pagination
     {
         public int current_page { get; set; }
@@ -31,7 +38,7 @@ namespace ShopifyChallengeConsole
     }
 
     /// <summary>
-    /// Plain CLR object representing the menu properties
+    /// Plain CLR object representing the menu properties.
     /// </summary>
     public class Menu
     {
@@ -39,6 +46,12 @@ namespace ShopifyChallengeConsole
         public string data { get; set; }
         public int? parent_id { get; set; }
         public int[] child_ids { get; set; }
+    }
+
+    public class OutputMenu
+    {
+        public int root_id { get; set; }
+        public int[] children { get; set; }
     }
 
 
@@ -49,13 +62,36 @@ namespace ShopifyChallengeConsole
         static string apiUrl =
             "https://backend-challenge-summer-2018.herokuapp.com/challenges.json?id=1&page=1";
 
-        static List<Menu> invalidMenus = new List<Menu>();
-        static List<Menu> validMenus = new List<Menu>();
+        static List<Menu> _invalidMenus = new List<Menu>();
+        static List<Menu> _validMenus = new List<Menu>();
+        static List<int> _discoveredMenus = new List<int>();
 
-
+        /// <summary>
+        /// Updates the api page url.
+        /// </summary>
+        /// <param name="page">The page to update the url to.</param>
+        /// <returns>The new API url.</returns>
         static string UpdateApiUrlPage(int page)
         {
             return apiUrl.Substring(0, apiUrl.Length - 1) + page;
+        }
+
+        /// <summary>
+        /// Checks for duplicates in a list of integers.
+        /// </summary>
+        /// <param name="valuesToCheck">The list of integers to check for duplicates.</param>
+        /// <returns>True if duplicates exist.</returns>
+        static bool DuplicatesFound(List<int> valuesToCheck)
+        {
+            List<int> newList = new List<int>();
+            foreach (int i in valuesToCheck)
+            {
+                if (!newList.Contains(i))
+                {
+                    newList.Add(i);
+                }
+            }
+            return valuesToCheck.Count != newList.Count;
         }
 
         /// <summary>
@@ -82,7 +118,7 @@ namespace ShopifyChallengeConsole
         /// <returns>A Menu CLR object.</returns>
         static Menu GetChildMenu(Menus menus, int id)
         {
-            for (int i = 0; i < menus.menus.Length; i++)
+            for (int i = 0; i < menus.menus.Count; i++)
             {
                 if (menus.menus[i].id == id)
                 {
@@ -90,6 +126,22 @@ namespace ShopifyChallengeConsole
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Gets all of the children menus for a particular menu.
+        /// </summary>
+        /// <param name="menus">The collection of menus.</param>
+        /// <param name="menu">The parent menu of the children.</param>
+        /// <returns>A list of children Menu.</returns>
+        static List<Menu> GetChildMenusForThisMenu(Menus menus,Menu menu)
+        {
+            List<Menu> childMenus = new List<Menu>();
+            foreach (var childId in menu.child_ids)
+            {
+                childMenus.Add(GetChildMenu(menus, childId));
+            }
+            return childMenus;
         }
 
         /// <summary>
@@ -111,32 +163,43 @@ namespace ShopifyChallengeConsole
         /// <param name="menus">The Menu collection to search through.</param>
         private static void FindCyclicalReferences(Menus menus)
         {
-            for (int i = 0; i < menus.menus.Length; i++)
+            for (int i = 0; i < menus.menus.Count; i++)
             {
                 Menu rootMenu = menus.menus[i];
-                Queue<int> childIds = new Queue<int>();
-                foreach (int id in menus.menus[i].child_ids)
+                DiscoverNodes(menus, rootMenu);
+                if (DuplicatesFound(_discoveredMenus))
                 {
-                    childIds.Enqueue(id);
+                    _invalidMenus.Add(rootMenu);
                 }
-
-                while (childIds.Count > 0)
+                else
                 {
-                    Menu childMenu = GetChildMenu(menus, childIds.Dequeue());
-                    if (childMenu == null) break;
-                    foreach (int childId in childMenu.child_ids)
-                    {
-                        if (childId == rootMenu.id)
-                        {
-                            invalidMenus.Add(rootMenu);
-                        }
-                    }
-
+                    _validMenus.Add(rootMenu);
                 }
-                validMenus.Add(rootMenu);
+                _discoveredMenus = new List<int>();
             }
         }
 
+        /// <summary>
+        /// Recursive function that traverses the menu tree.
+        /// </summary>
+        /// <param name="menus">The collection of menus.</param>
+        /// <param name="menu">The menu being traversed.</param>
+        static void DiscoverNodes(Menus menus, Menu menu)
+        {
+            _discoveredMenus.Add(menu.id);
+            foreach (var childMenu in GetChildMenusForThisMenu(menus, menu))
+            {
+                if (!_discoveredMenus.Contains(childMenu.id))
+                {
+                    DiscoverNodes(menus, childMenu);
+                }
+                else
+                {
+                    _discoveredMenus.Add(childMenu.id);
+                }
+            }
+
+        }
 
         /// <summary>
         /// Main task, finds the invalid and valid menus.
@@ -150,24 +213,39 @@ namespace ShopifyChallengeConsole
                 new MediaTypeWithQualityHeaderValue("application/json"));
             int numberOfPages = await GetNumberOfPages();
 
+            Menus combinedMenus = new Menus();
             for (int i = 0; i < numberOfPages; i++)
             {
                 Menus menus = await GetMenuAsync(UpdateApiUrlPage(i + 1));
-                FindCyclicalReferences(menus);
+                foreach (var menu in menus.menus)
+                {
+                    combinedMenus.menus.Add(menu);
+                }    
             }
 
-            var unserializedValidMenus = new { valid_menus = new List<Menu>() };
-            foreach (var menu in validMenus)
+            FindCyclicalReferences(combinedMenus);
+
+
+            var unserializedValidMenus = new { valid_menus = new List<OutputMenu>() };
+            foreach (var menu in _validMenus)
             {
-                unserializedValidMenus.valid_menus.Add(menu);
+                unserializedValidMenus.valid_menus.Add(new OutputMenu
+                {
+                    root_id = menu.id,
+                    children = menu.child_ids
+                });
             }
             string serializedValidMenus = JsonConvert.SerializeObject(unserializedValidMenus);
 
 
-            var unserializedInvalidMenus = new { invalid_menus = new List<Menu>() };
-            foreach (var menu in invalidMenus)
+            var unserializedInvalidMenus = new { invalid_menus = new List<OutputMenu>() };
+            foreach (var menu in _invalidMenus)
             {
-                unserializedInvalidMenus.invalid_menus.Add(menu);
+                unserializedInvalidMenus.invalid_menus.Add(new OutputMenu
+                {
+                    root_id = menu.id,
+                    children = menu.child_ids
+                });
             }
             string serializedInvalidMenus = JsonConvert.SerializeObject(unserializedInvalidMenus);
 
