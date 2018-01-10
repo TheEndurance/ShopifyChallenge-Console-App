@@ -20,6 +20,14 @@ namespace ShopifyChallengeConsole
     public class Menus
     {
         public Menu[] menus { get; set; }
+        public Pagination pagination { get; set; }
+    }
+
+    public class Pagination
+    {
+        public int current_page { get; set; }
+        public int per_page { get; set; }
+        public int total { get; set; }
     }
 
     /// <summary>
@@ -43,6 +51,12 @@ namespace ShopifyChallengeConsole
 
         static List<Menu> invalidMenus = new List<Menu>();
         static List<Menu> validMenus = new List<Menu>();
+
+
+        static string UpdateApiUrlPage(int page)
+        {
+            return apiUrl.Substring(0, apiUrl.Length - 1) + page;
+        }
 
         /// <summary>
         /// Gets the menu JSON object by making a request to API.
@@ -79,38 +93,16 @@ namespace ShopifyChallengeConsole
         }
 
         /// <summary>
-        /// Main task, finds the invalid and valid menus.
+        /// Gets the number of pages for menus.
         /// </summary>
-        /// <returns></returns>
-        static async Task RunAsync()
+        /// <returns>The number of pages.</returns>
+        private static async Task<int> GetNumberOfPages()
         {
-            client.BaseAddress = new Uri(apiUrl);
-            client.DefaultRequestHeaders.Accept.Clear();
-            client.DefaultRequestHeaders.Accept.Add(
-                new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var menus =
+            Menus tempMenus =
                 await GetMenuAsync(apiUrl);
-            FindCyclicalReferences(menus);
-
-            var unserializedValidMenus = new { valid_menus = new List<Menu>() };
-            foreach (var menu in validMenus)
-            {
-                unserializedValidMenus.valid_menus.Add(menu);
-            }
-            string serializedValidMenus = JsonConvert.SerializeObject(unserializedValidMenus);
-
-
-            var unserializedInvalidMenus = new { invalid_menus = new List<Menu>() };
-            foreach (var menu in invalidMenus)
-            {
-                unserializedInvalidMenus.invalid_menus.Add(menu);
-            }
-            string serializedInvalidMenus = JsonConvert.SerializeObject(unserializedInvalidMenus);
-
-            Console.WriteLine(serializedValidMenus);
-            Console.WriteLine(serializedInvalidMenus);
-
+            int numberOfPages =
+                (int)Math.Ceiling((double)tempMenus.pagination.total / tempMenus.pagination.per_page);
+            return numberOfPages;
         }
 
         /// <summary>
@@ -145,6 +137,46 @@ namespace ShopifyChallengeConsole
             }
         }
 
+
+        /// <summary>
+        /// Main task, finds the invalid and valid menus.
+        /// </summary>
+        /// <returns></returns>
+        static async Task RunAsync()
+        {
+            client.BaseAddress = new Uri(apiUrl);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("application/json"));
+            int numberOfPages = await GetNumberOfPages();
+
+            for (int i = 0; i < numberOfPages; i++)
+            {
+                Menus menus = await GetMenuAsync(UpdateApiUrlPage(i + 1));
+                FindCyclicalReferences(menus);
+            }
+
+            var unserializedValidMenus = new { valid_menus = new List<Menu>() };
+            foreach (var menu in validMenus)
+            {
+                unserializedValidMenus.valid_menus.Add(menu);
+            }
+            string serializedValidMenus = JsonConvert.SerializeObject(unserializedValidMenus);
+
+
+            var unserializedInvalidMenus = new { invalid_menus = new List<Menu>() };
+            foreach (var menu in invalidMenus)
+            {
+                unserializedInvalidMenus.invalid_menus.Add(menu);
+            }
+            string serializedInvalidMenus = JsonConvert.SerializeObject(unserializedInvalidMenus);
+
+            Console.WriteLine(serializedValidMenus);
+            Console.WriteLine(serializedInvalidMenus);
+
+        }
+
+        
         /// <summary>
         /// Main program entry.
         /// </summary>
